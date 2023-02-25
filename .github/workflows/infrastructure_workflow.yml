@@ -146,3 +146,10 @@ jobs:
           ARM_CLIENT_SECRET:  ${{ secrets.PROD_DRIVERTRUCK_SP_PASSWORD }}
           ARM_TENANT_ID:  ${{ env.AZURE_TENANT }}
           ARM_SUBSCRIPTION_ID:  ${{ env.AZURE_SUBSCRIPTION }}
+          
+      <packageSourceCredentials>
+    <myFeed>
+        <add key="Username" value="myusername" />
+        <add key="ClearTextPassword" value="mytokencomeshere" />
+      </myFeed>
+  </packageSourceCredentials>
