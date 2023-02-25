@@ -1,0 +1,163 @@
+name: Main
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Backend/**'
+      - '.github/workflows/main_workflow.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'Backend/**'
+      - '.github/workflows/main_workflow.yml'
+
+env:
+  DOTNET_VERSION: '6.0.x'
+  BUILD_CONFIGURATION: 'release'
+  PACKAGE_PATH: '.'
+  CORE_NAMESPACE: 'Werner.Driver'
+
+jobs:
+  build_dotnet:
+    name: Build .NET Core Projects
+    
+    runs-on: ubuntu-latest
+    env:
+      AZURE_SUBSCRIPTION: 70e5b1c3-b594-4d13-916e-396993a1b440
+    steps:
+      - uses: actions/checkout@v2
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Github Nuget Auth
+        run: dotnet nuget add source --username USERNAME --password ${{ secrets.PACKAGES_PAT }} --store-password-in-clear-text --name github "https://nuget.pkg.github.com/WernerDevOps/index.json"
+
+        # Log into Azure
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.NONPROD_DRIVERTRUCK_SP_CREDENTIALS }}
+
+      - name: Switch Sub
+        run: az account set --subscription ${{ env.AZURE_SUBSCRIPTION }}
+
+      - name: Restore dependencies
+        run: dotnet restore
+        working-directory: Backend
+
+      - name: Build
+        run: dotnet build --no-restore --configuration ${{ env.BUILD_CONFIGURATION }}
+        working-directory: Backend
+        
+      - name: Unit-Tests
+        run: dotnet test --configuration ${{ env.BUILD_CONFIGURATION }} --filter "TestCategory=Unit-Test"
+        working-directory: Backend
+        env:
+          "ConnectionStrings:AppConfig": ${{ secrets.CDE_APP_CONFIG_CONNSTRING }}
+      
+      - name: Create Function Artifacts
+        if: github.event_name == 'push'
+        run: dotnet publish ./${{ env.CORE_NAMESPACE }}.FunctionClient --configuration ${{ env.BUILD_CONFIGURATION }} --output ${{ env.PACKAGE_PATH }}/publish/function
+        working-directory: Backend
+    
+      - name: Publish Artifacts
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v2
+        with:
+          name: build_dotnet
+          path: ./Backend/publish/*
+
+  deploy_to_cde:
+    name: Deploy CDE
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: CDE
+    needs: [build_dotnet]
+    runs-on: ubuntu-latest
+    env:
+      AZURE_SUBSCRIPTION: 70e5b1c3-b594-4d13-916e-396993a1b440
+      AZURE_RESOURCE_GROUP: 'cde-rg-cus-driver-01'
+      FUNCTION: 'cde-func-cus-driver-01'
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v2
+        with:
+          name: build_dotnet
+          path: ./publish
+     
+      # Azure Login
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.NONPROD_DRIVERTRUCK_SP_CREDENTIALS }}
+
+      - name: Switch Sub
+        run: az account set --subscription ${{ env.AZURE_SUBSCRIPTION }}
+
+      - name: Deploy Function
+        uses: Azure/functions-action@v1
+        with: 
+          app-name: ${{ env.FUNCTION }} 
+          package: ./publish/function
+
+  deploy_to_qa:
+    name: Deploy QA
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: QA
+    needs: [build_dotnet, deploy_to_cde]
+    runs-on: ubuntu-latest
+    env:
+      AZURE_SUBSCRIPTION: 70e5b1c3-b594-4d13-916e-396993a1b440
+      AZURE_RESOURCE_GROUP: 'qa-rg-cus-driver-01'
+      FUNCTION: 'qa-func-cus-driver-01'
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v2
+        with:
+          name: build_dotnet
+          path: ./publish
+     
+      # Azure Login
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.NONPROD_DRIVERTRUCK_SP_CREDENTIALS }}
+
+      - name: Switch Sub
+        run: az account set --subscription ${{ env.AZURE_SUBSCRIPTION }}
+
+      - name: Deploy Function
+        uses: Azure/functions-action@v1
+        with: 
+          app-name: ${{ env.FUNCTION }} 
+          package: ./publish/function
+
+  deploy_to_prod:
+    name: Deploy Prod
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    environment: Prod
+    needs: [build_dotnet, deploy_to_qa]
+    runs-on: ubuntu-latest
+    env:
+      AZURE_RESOURCE_GROUP: 'prod-rg-cus-driver-01'
+      FUNCTION: 'prod-func-cus-driver-01'
+    steps:
+      - name: Download Artifacts
+        uses: actions/download-artifact@v2
+        with:
+          name: build_dotnet
+          path: ./publish
+     
+      # Azure Login
+      - name: Azure Login
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.PROD_DRIVERTRUCK_SP_CREDENTIALS }}
+
+      - name: Deploy Function
+        uses: Azure/functions-action@v1
+        with: 
+          app-name: ${{ env.FUNCTION }} 
+          package: ./publish/function
