@@ -1,0 +1,148 @@
+name: Infrastructure
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - 'Infrastructure/**'
+      - '.github/workflows/infrastructure_workflow.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'Infrastructure/**'
+      - '.github/workflows/infrastructure_workflow.yml'
+
+env:
+  DOTNET_VERSION: '6.0.x'
+  AZURE_TENANT: b162c1ef-7092-417c-8ae7-10d9fb88d1b0
+
+jobs:
+  checks:
+    name: Verify Pulumi - Via Preview
+    environment: CDE
+    runs-on: ubuntu-latest
+    env:
+      AZURE_SUBSCRIPTION: 70e5b1c3-b594-4d13-916e-396993a1b440
+      CLIENT_ID: 6a7307cf-dd6b-40ad-9f96-d74a1d7be6d0
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Github Nuget Auth
+        run: dotnet nuget add source --username USERNAME --password ${{ secrets.PACKAGES_PAT }} --store-password-in-clear-text --name github "https://nuget.pkg.github.com/WernerDevOps/index.json"
+
+      - uses: pulumi/actions@v3
+        with:
+          command: preview
+          stack-name: Werner/cde
+          comment-on-pr: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          work-dir: ./Infrastructure
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          ARM_CLIENT_ID:  ${{ env.CLIENT_ID }}
+          ARM_CLIENT_SECRET:  ${{ secrets.NONPROD_DRIVERTRUCK_SP_PASSWORD }}
+          ARM_TENANT_ID:  ${{ env.AZURE_TENANT }}
+          ARM_SUBSCRIPTION_ID:  ${{ env.AZURE_SUBSCRIPTION }}
+
+  deploy_infra_cde:
+    if: github.event_name != 'pull_request' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    name: Deploy CDE Infrastructure
+    environment: CDE
+    needs: [checks]
+    runs-on: ubuntu-latest
+    env:
+      AZURE_SUBSCRIPTION: 70e5b1c3-b594-4d13-916e-396993a1b440
+      CLIENT_ID: 6a7307cf-dd6b-40ad-9f96-d74a1d7be6d0
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Github Nuget Auth
+        run: dotnet nuget add source --username USERNAME --password ${{ secrets.PACKAGES_PAT }} --store-password-in-clear-text --name github "https://nuget.pkg.github.com/WernerDevOps/index.json"
+
+      - uses: pulumi/actions@v3
+        with:
+          command: up
+          stack-name: Werner/cde
+          comment-on-pr: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          work-dir: ./Infrastructure
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          ARM_CLIENT_ID:  ${{ env.CLIENT_ID }}
+          ARM_CLIENT_SECRET:  ${{ secrets.NONPROD_DRIVERTRUCK_SP_PASSWORD }}
+          ARM_TENANT_ID:  ${{ env.AZURE_TENANT }}
+          ARM_SUBSCRIPTION_ID:  ${{ env.AZURE_SUBSCRIPTION }}
+
+  deploy_infra_qa:
+    if: github.event_name != 'pull_request' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    name: Deploy QA Infrastructure
+    environment: QA
+    needs: [checks, deploy_infra_cde]
+    runs-on: ubuntu-latest
+    env:
+      AZURE_SUBSCRIPTION: 70e5b1c3-b594-4d13-916e-396993a1b440
+      CLIENT_ID: 6a7307cf-dd6b-40ad-9f96-d74a1d7be6d0
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Github Nuget Auth
+        run: dotnet nuget add source --username USERNAME --password ${{ secrets.PACKAGES_PAT }} --store-password-in-clear-text --name github "https://nuget.pkg.github.com/WernerDevOps/index.json"
+
+      - uses: pulumi/actions@v3
+        with:
+          command: up
+          stack-name: Werner/qa
+          comment-on-pr: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          work-dir: ./Infrastructure
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          ARM_CLIENT_ID:  ${{ env.CLIENT_ID }}
+          ARM_CLIENT_SECRET:  ${{ secrets.NONPROD_DRIVERTRUCK_SP_PASSWORD }}
+          ARM_TENANT_ID:  ${{ env.AZURE_TENANT }}
+          ARM_SUBSCRIPTION_ID:  ${{ env.AZURE_SUBSCRIPTION }}
+
+  deploy_infra_prod:
+    if: github.event_name != 'pull_request' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    name: Deploy Prod Infrastructure
+    environment: Prod
+    needs: [checks, deploy_infra_qa]
+    runs-on: ubuntu-latest
+    env:
+      CLIENT_ID: f5955663-2b82-45c0-a918-a0394802f02d
+      AZURE_SUBSCRIPTION: fc3e4b39-b5e0-44bb-a4ed-d9ed316dae07
+    steps:
+      - uses: actions/checkout@v2
+
+      - uses: actions/setup-dotnet@v1
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Github Nuget Auth
+        run: dotnet nuget add source --username USERNAME --password ${{ secrets.PACKAGES_PAT }} --store-password-in-clear-text --name github "https://nuget.pkg.github.com/WernerDevOps/index.json"
+
+      - uses: pulumi/actions@v3
+        with:
+          command: up
+          stack-name: Werner/prod
+          comment-on-pr: true
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          work-dir: ./Infrastructure
+        env:
+          PULUMI_ACCESS_TOKEN: ${{ secrets.PULUMI_ACCESS_TOKEN }}
+          ARM_CLIENT_ID:  ${{ env.CLIENT_ID }}
+          ARM_CLIENT_SECRET:  ${{ secrets.PROD_DRIVERTRUCK_SP_PASSWORD }}
+          ARM_TENANT_ID:  ${{ env.AZURE_TENANT }}
+          ARM_SUBSCRIPTION_ID:  ${{ env.AZURE_SUBSCRIPTION }}
