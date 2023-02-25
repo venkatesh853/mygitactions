@@ -1,17 +1,14 @@
-name: Super-Linter
-
+name: Pull request labeler
 on: push
 
+permissions:
+  contents: read
+  pull-requests: write
+
 jobs:
-  super-lint:
-  name: Lint code base
-  runs-on: ubuntu-latest
-  steps:
-    -name: Checkout code
-    uses: action/checkout@v2
-    
-    -name: Run Super-Linter
-    uses: github/super-linter@v3
-    env:
-    DEFAULT_BRANCH: main
-    GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  triage:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/labeler@v4
+        with:
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
