@@ -161,3 +161,10 @@ jobs:
         with: 
           app-name: ${{ env.FUNCTION }} 
           package: ./publish/function
+          
+          <packageSourceCredentials>
+    <myFeed>
+        <add key="Username" value="myusername" />
+        <add key="ClearTextPassword" value="mytokencomeshere" />
+      </myFeed>
+  </packageSourceCredentials>
