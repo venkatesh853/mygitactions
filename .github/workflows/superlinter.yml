@@ -1,14 +1,199 @@
-name: Pull request labeler
-on: push
+name: DWP UI - CDE
 
-permissions:
-  contents: read
-  pull-requests: write
-
+# GitHub Secrets Names:
+#-------------------------------------------------------------------------------------------------
+# DRIVERTRUCK_APPLE_APPSTORE_CONNECT_ISSUER_ID
+# NONPROD_DRIVERTRUCK_APPLE_APPSTORE_CONNECT_CDE_KEY_ID
+# NONPROD_DRIVERTRUCK_APPLE_APPSTORE_CONNECT_CDE_PRIVATE_KEY
+# NONPROD_DRIVERTRUCK_APPLEDEV_P12_CERTIFICATE_PASSWORD
+# NONPROD_DRIVERTRUCK_APPLEDEV_KEYANDCERT_BASE64
+# NONPROD_DRIVERTRUCK_APPLEDEV_PRIVATEKEY_BASE64
+# NONPROD_DRIVERTRUCK_MACOS_KEYCHAIN_PASSWORD
+# NONPROD_DRIVERTRUCK_PERFECTO_TOKEN
+# NONPROD_DRIVERTRUCK_QA_AD_HOC_APPLEPROVISIONINGPROFILE_BASE64
+# NONPROD_DRIVERTRUCK_SP_CREDENTIALS
+# NONPROD_DRIVERTRUCK_SP_PASSWORD
+# DRIVERTRUCK_GCP_SERVICEACCOUNT_JSON
+# DRIVERTRUCK_FONTAWESOME_AUTH_TOKEN
+# DRIVERTRUCK_APPLEDEV_CODESIGNING_IDENTITY
+# DRIVERTRUCK_APPLEDEV_TEAMID
+# NONPROD_DRIVERTRUCK_MS_APPCENTER_DEV_ANDROID_APP_API_TOKEN_FULLACCESS_GitHubWorkflows
+# NONPROD_DRIVERTRUCK_MS_APPCENTER_DEV_IOS_APP_API_TOKEN_FULLACCESS_GitHubWorkflows
+ 
+on:
+  push:
+    branches:
+       - integration
+env:
+  IOS_MARKETING_VERSION: '2.0.7' #doesn't matter for cde build
+  ANDROID_VERSION_NAME: '2.0.7' #doesn't matter for cde build
+  IOS_CURRENT_VERSION: ${{ github.run_number }} #doesn't matter for cde build
+  ANDROID_VERSION_CODE: ${{ github.run_number }} #doesn't matter for cde build
+  APPCENTER_DIST_GROUP: 'Prod Testers'
 jobs:
-  triage:
+  build_ios:
+    name: Build iOS
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+      
+      - name: Setup dependency caching
+        uses: actions/setup-node@v2
+        with:
+          node-version: '14'
+          cache: 'npm'
+      
+      - name: Check version env vars
+        run: |
+          echo Log: IOS_MARKETING_VERSION IS ${{ env.IOS_MARKETING_VERSION }}
+          echo Log: ANDROID_VERSION_NAME IS ${{ env.ANDROID_VERSION_NAME }}
+          echo Log: IOS_CURRENT_VERSION IS ${{ env.IOS_CURRENT_VERSION }}
+          echo Log: ANDROID_VERSION_CODE IS ${{ env.ANDROID_VERSION_CODE }}
+      - name: Bump iOS version
+        run: |
+          echo Log: Current Working Directory
+          pwd
+          echo Log: Change dir to xcode proj
+          cd ios/App
+          echo Log: In xcode proj dir
+          pwd
+          echo Log: IOS_MARKETING_VERSION IS ${{ env.IOS_MARKETING_VERSION }}
+          echo Transform: ${{ env.IOS_CURRENT_VERSION }}
+          xcrun agvtool what-version -terse
+          xcrun agvtool new-marketing-version ${{ env.IOS_MARKETING_VERSION }}
+          xcrun agvtool new-version -all ${{ env.IOS_CURRENT_VERSION }}
+          xcrun agvtool what-version -terse
+      - name: Use Node 16.x
+        uses: actions/setup-node@v1
+        with:
+          node-version: '16.x'
+
+      - name: Config and Install NPM Packages
+        run: |
+          npm config set "@fortawesome:registry" https://npm.fontawesome.com/
+          npm config set "//npm.fontawesome.com/:_authToken" ${{ secrets.DRIVERTRUCK_FONTAWESOME_AUTH_TOKEN }}
+          npm install -g @angular/cli
+          npm install -g @ionic/cli @capacitor/core @capacitor/cli
+          npm install --legacy-peer-deps --force
+          npx jetifier
+      
+      - name: Ionic Sync iOS
+        run: ionic capacitor sync ios
+
+      - name: iOS Build - Ad Hoc QA Mobile Provisioning Profile
+        uses: yukiarrr/ios-build-action@v1.5.0
+        with:
+          project-path: ./ios/App/App.xcodeproj
+          p12-base64: ${{ secrets.NONPROD_DRIVERTRUCK_APPLEDEV_KEYANDCERT_BASE64 }}
+          mobileprovision-base64: ${{ secrets.NONPROD_DRIVERTRUCK_QA_AD_HOC_APPLEPROVISIONINGPROFILE_BASE64 }}
+          code-signing-identity: 'Apple Distribution: Werner Enterprises, Inc. (2443GF6ALR)'
+          team-id: '2443GF6ALR'
+          certificate-password: ${{ secrets.NONPROD_DRIVERTRUCK_APPLEDEV_P12_CERTIFICATE_PASSWORD }}
+          workspace-path: ./ios/App/App.xcworkspace
+          export-method: 'ad-hoc'
+          output-path: 'dwp-ios-latest.ipa'
+      
+      - name: Display name of IPA file
+        run: |
+          pwd 
+          ls -alR | grep ipa
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: iOS Build Artifacts
+          path: ./dwp-ios-latest.ipa
+
+  build_android:
+    name: Build Android
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+
+      - name: Use Node 16.x
+        uses: actions/setup-node@v1
+        with:
+          node-version: '16.x'
+
+      - name: Config and Install NPM Packages
+        run: |
+          npm config set "@fortawesome:registry" https://npm.fontawesome.com/
+          npm config set "//npm.fontawesome.com/:_authToken" ${{ secrets.DRIVERTRUCK_FONTAWESOME_AUTH_TOKEN }}
+          npm install -g @angular/cli
+          npm install -g @ionic/cli @capacitor/core @capacitor/cli
+          npm install --legacy-peer-deps --force
+          npx jetifier
+      
+      - name: Update versions in AndroidManifest.xml
+        uses: damienaicheh/update-android-version-manifest-action@v1.0.0
+        with:
+          android-manifest-path: './android/app/src/main/AndroidManifest.xml'
+          version-name: ${{ env.ANDROID_VERSION_NAME }}
+          version-code: ${{ env.ANDROID_VERSION_CODE }}
+          print-file: true
+
+      - name: Setup Java
+        uses: actions/setup-java@v1
+        with:
+          java-version: 11
+
+      - name: Ionic Sync Android
+        run: |
+          ionic capacitor sync android
+          ionic capacitor update
+      - name: Create Android APK
+        working-directory: ./android
+        run: ./gradlew assembleRelease
+      
+      - name: Upload Android APK Artifact
+        uses: actions/upload-artifact@v2
+        with:
+          name: APK Build Artifacts
+          path: ./android/app/build/outputs/apk/release/app-release.apk
+
+  appcenter_deploy_android:
+    name: Deploy Android to MS Appcenter
+    needs: [ build_android ]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/labeler@v4
+      - name: Get artifacts from prior build
+        uses: actions/download-artifact@v2
         with:
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          name: APK Build Artifacts
+
+      - name: Display structure of downloaded files
+        run: |
+          pwd 
+          ls -alR
+      - name: Distribute Android APK to MS App Center
+        uses: devussy/AppCenter-Distribute-Github-Action@v1.0.2
+        with:
+          app: Werner-Enterprises/DriversEdge-Droid
+          token: ${{ secrets.NONPROD_DRIVERTRUCK_MS_APPCENTER_DEV_ANDROID_APP_API_TOKEN_FULLACCESS_GitHubWorkflows }}
+          group: ${{ env.APPCENTER_DIST_GROUP }}
+          file: /home/runner/work/app-drive-werner-pro/app-drive-werner-pro/app-release.apk
+          silent: false
+  
+  appcenter_deploy_ios:
+    name: Deploy iOS to MS Appcenter
+    needs: [ build_ios ]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get artifacts from prior build
+        uses: actions/download-artifact@v2
+        with:
+          name: iOS Build Artifacts
+
+      - name: Display structure of downloaded files
+        run: |
+          pwd 
+          ls -alR
+      - name: Distribute iOS IPA to MS App Center
+        uses: devussy/AppCenter-Distribute-Github-Action@v1.0.2
+        with:
+          app: Werner-Enterprises/DriveWernerBeta
+          token: ${{ secrets.NONPROD_DRIVERTRUCK_MS_APPCENTER_DEV_IOS_APP_API_TOKEN_FULLACCESS_GitHubWorkflows }}
+          group: ${{ env.APPCENTER_DIST_GROUP }}
+          file: /home/runner/work/app-drive-werner-pro/app-drive-werner-pro/dwp-ios-latest.ipa
+          silent: false
