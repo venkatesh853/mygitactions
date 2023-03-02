@@ -1,4 +1,4 @@
-name: Test Workflow user
+name: Reusable workflow example
 
 on: 
   workflow_dispatch:
