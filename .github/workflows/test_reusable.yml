@@ -1,0 +1,23 @@
+name: Test Workflow user
+
+on: 
+  workflow_dispatch:
+  
+  jobs:
+  do-it:
+   runs-on: ubuntu-latest
+   
+   steps:
+    -uses: actions/checkout@v2
+    
+    -name: Run a one-line script
+    run: echo Hello, World!
+    
+ docker:
+  uses: octo-org/this-repo/.github/workflows/workflow-1.yml@172239021f7ba04fe7327647b213799853a9eb89
+  with:
+  image-name: my_awesome-app
+  tag: $GITHUB_RUN_NUMBER
+  secrets:
+  registry_username: ${{secrets>REGISTRY_USERNAME}}
+  registry_password: ${{secrets>REGISTRY_PASSWORD}}
